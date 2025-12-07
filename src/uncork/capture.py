@@ -98,19 +98,21 @@ class PrefixCapture:
         args: str = "",
         working_dir: str | None = None,
         icon_source: str | None = None,
+        custom_icon_path: str | Path | None = None,
         desktop_entry: bool = True,
         categories: list[str] | None = None,
     ) -> None:
         """
         Add an executable entry point.
-        
+
         Args:
             id: Unique identifier (used in filenames)
             name: Human-readable name for menus
             path: Path relative to prefix (e.g., "drive_c/Program Files/App/app.exe")
             args: Default command-line arguments
             working_dir: Working directory relative to prefix
-            icon_source: Path to extract icon from (defaults to exe path)
+            icon_source: Path to extract icon from within prefix (defaults to exe path)
+            custom_icon_path: Absolute path to custom icon file (PNG/ICO) to use instead of extracting
             desktop_entry: Whether to create .desktop file
             categories: XDG categories for .desktop file
         """
@@ -118,7 +120,13 @@ class PrefixCapture:
         full_path = self.prefix_path / path
         if not full_path.exists():
             raise CaptureError(f"Executable not found: {full_path}")
-        
+
+        # Validate custom icon if provided
+        if custom_icon_path:
+            custom_icon_path = Path(custom_icon_path)
+            if not custom_icon_path.exists():
+                raise CaptureError(f"Custom icon not found: {custom_icon_path}")
+
         exe = Executable(
             id=id,
             name=name,
@@ -129,10 +137,11 @@ class PrefixCapture:
             create_desktop_entry=desktop_entry,
             categories=categories or ["Application"],
         )
-        
+
         # Store icon source for later extraction
         exe._icon_source = icon_source or path  # type: ignore
-        
+        exe._custom_icon_path = custom_icon_path  # type: ignore
+
         self._executables.append(exe)
 
     def set_wine_mode(
@@ -327,12 +336,13 @@ class PrefixCapture:
                 continue
             
             dest_path = dest / rel_path
-            
-            if src_path.is_dir():
-                dest_path.mkdir(parents=True, exist_ok=True)
-            elif src_path.is_symlink():
+
+            # Check symlinks first (is_dir() follows symlinks)
+            if src_path.is_symlink():
                 # Handle symlinks specially - store as relative or skip
                 self._handle_symlink(src_path, dest_path, rel_path)
+            elif src_path.is_dir():
+                dest_path.mkdir(parents=True, exist_ok=True)
             elif src_path.is_file():
                 dest_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_path, dest_path)
@@ -390,19 +400,32 @@ class PrefixCapture:
             old_user_dir.rename(new_user_dir)
 
     def _extract_icons(self, icons_dir: Path) -> None:
-        """Extract icons from executables."""
+        """Extract icons from executables or copy custom icons."""
         for exe in self._executables:
-            icon_source = getattr(exe, "_icon_source", exe.path)
-            source_path = self.prefix_path / icon_source
-            
-            if source_path.exists():
-                icon_path = icons_dir / f"{exe.id}.png"
+            icon_path = icons_dir / f"{exe.id}.png"
+
+            # Check if custom icon path is provided
+            custom_icon = getattr(exe, "_custom_icon_path", None)
+            if custom_icon:
                 try:
-                    extract_icon(source_path, icon_path)
+                    # Copy custom icon file
+                    shutil.copy2(custom_icon, icon_path)
                     exe.icon = f"icons/{exe.id}.png"
                 except Exception as e:
-                    # Icon extraction failed, not critical
+                    # Custom icon copy failed
                     exe.icon = None
+            else:
+                # Extract icon from executable
+                icon_source = getattr(exe, "_icon_source", exe.path)
+                source_path = self.prefix_path / icon_source
+
+                if source_path.exists():
+                    try:
+                        extract_icon(source_path, icon_path)
+                        exe.icon = f"icons/{exe.id}.png"
+                    except Exception as e:
+                        # Icon extraction failed, not critical
+                        exe.icon = None
 
     def _bundle_wine(self, wine_dir: Path) -> None:
         """Copy bundled Wine installation."""

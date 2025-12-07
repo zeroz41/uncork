@@ -214,29 +214,33 @@ def generate_desktop_file(spec: PackageSpec, exe: Executable) -> str:
     """
     Generate .desktop file for an executable.
     """
-    system_path = spec.get_system_path()
-    
-    # Determine icon name
+    # Use the /usr/bin symlink for Exec (more standard)
+    exec_name = spec.app.name if exe.id == "main" else f"{spec.app.name}-{exe.id}"
+
+    # Icon name matches the executable name for consistency
     if exe.icon:
         icon = spec.app.name if exe.id == "main" else f"{spec.app.name}-{exe.id}"
     else:
         icon = "wine"
-    
+
     categories = ";".join(exe.categories) + ";"
-    
+
+    # Use WM_CLASS matching the exe name (without .exe extension)
+    wm_class = Path(exe.path).stem
+
     desktop = dedent(f'''\
         [Desktop Entry]
         Type=Application
         Name={exe.name}
         Comment={spec.app.description}
-        Exec={system_path}/bin/{exe.id}
+        Exec={exec_name}
         Icon={icon}
         Terminal=false
         Categories={categories}
-        StartupWMClass={Path(exe.path).stem}.exe
+        StartupWMClass={wm_class}
         Keywords=wine;windows;
     ''')
-    
+
     return desktop
 
 

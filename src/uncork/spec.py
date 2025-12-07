@@ -109,8 +109,8 @@ class PackageSpec(BaseModel):
 
     def get_system_path(self) -> str:
         """Get resolved system installation path."""
-        return self.install.system_path.format(name=self.app.name)
+        return self.install.system_path.replace("{name}", self.app.name)
 
     def get_user_data_path(self) -> str:
         """Get user data path template (still contains env vars)."""
-        return self.install.user_data_path.format(name=self.app.name)
+        return self.install.user_data_path.replace("{name}", self.app.name)

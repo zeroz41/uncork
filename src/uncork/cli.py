@@ -102,6 +102,8 @@ def analyze(prefix_path: Path):
               help="Output directory for intermediate format")
 @click.option("--exe", "-e", multiple=True,
               help="Executable to include: 'Name:path/to/exe.exe' (can specify multiple)")
+@click.option("--icon", "-i", multiple=True,
+              help="Custom icon: 'exe-id:path/to/icon.png' (can specify multiple)")
 @click.option("--name", help="Package name (default: derived from first executable)")
 @click.option("--version", "pkg_version", default="1.0.0", help="Package version")
 @click.option("--wine-mode", type=click.Choice(["system", "bundled"]), default="system",
@@ -116,6 +118,7 @@ def capture(
     prefix_path: Path,
     output: Path,
     exe: tuple[str, ...],
+    icon: tuple[str, ...],
     name: str | None,
     pkg_version: str,
     wine_mode: str,
@@ -139,21 +142,33 @@ def capture(
     
     try:
         capture_obj = PrefixCapture(prefix_path)
-        
+
+        # Parse custom icons
+        custom_icons = {}
+        for icon_spec in icon:
+            if ":" not in icon_spec:
+                console.print(f"[red]Error:[/red] Invalid icon format: {icon_spec}")
+                console.print("Expected format: 'exe-id:path/to/icon.png'")
+                sys.exit(1)
+
+            icon_id, icon_path = icon_spec.split(":", 1)
+            custom_icons[icon_id.strip()] = Path(icon_path.strip())
+
         # Parse and add executables
         for exe_spec in exe:
             if ":" not in exe_spec:
                 console.print(f"[red]Error:[/red] Invalid executable format: {exe_spec}")
                 console.print("Expected format: 'Display Name:path/to/file.exe'")
                 sys.exit(1)
-            
+
             exe_name, exe_path = exe_spec.split(":", 1)
             exe_id = exe_name.lower().replace(" ", "-")
-            
+
             capture_obj.add_executable(
                 id=exe_id,
                 name=exe_name.strip(),
                 path=exe_path.strip(),
+                custom_icon_path=custom_icons.get(exe_id),
             )
         
         # Set Wine mode
