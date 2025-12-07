@@ -114,6 +114,8 @@ def analyze(prefix_path: Path):
               help="Minimum Wine version (for system mode)")
 @click.option("--overlay/--no-overlay", default=False,
               help="Use fuse-overlayfs instead of copying prefix")
+@click.option("--no-wineboot-update", is_flag=True, default=False,
+              help="Skip running wineboot -u before capture (not recommended for overlay mode)")
 def capture(
     prefix_path: Path,
     output: Path,
@@ -125,6 +127,7 @@ def capture(
     wine_path: Path | None,
     min_wine_version: str,
     overlay: bool,
+    no_wineboot_update: bool,
 ):
     """Capture and normalize a Wine prefix."""
     from uncork.capture import PrefixCapture, CaptureError
@@ -141,7 +144,7 @@ def capture(
         sys.exit(1)
     
     try:
-        capture_obj = PrefixCapture(prefix_path)
+        capture_obj = PrefixCapture(prefix_path, update_prefix=not no_wineboot_update)
 
         # Parse custom icons
         custom_icons = {}

@@ -58,6 +58,21 @@ uncork build ./myapp-intermediate \
     --format pacman
 ```
 
+ Custom Icon Support - You can now specify custom icon files per executable:
+  # CLI usage
+  uncork capture ~/.wine-prefix \
+      --output ./intermediate \
+      --exe "MyGame:drive_c/game.exe" \
+      --icon "mygame:/path/to/custom-icon.png"
+
+  # Python API usage
+  capture.add_executable(
+      id="mygame",
+      name="My Game",
+      path="drive_c/game.exe",
+      custom_icon_path="/path/to/custom-icon.png"
+  )
+
 ### Python API
 
 ```python

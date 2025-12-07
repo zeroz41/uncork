@@ -63,22 +63,23 @@ class PrefixCapture:
     USER_TOKEN = "__WINE_USER__"
     HOME_TOKEN = "__USER_HOME__"
 
-    def __init__(self, prefix_path: Path | str):
+    def __init__(self, prefix_path: Path | str, update_prefix: bool = True):
         self.prefix_path = Path(prefix_path).expanduser().resolve()
-        
+
         if not self.prefix_path.exists():
             raise CaptureError(f"Prefix path does not exist: {self.prefix_path}")
-        
+
         # Run initial analysis
         self._analysis: PrefixAnalysis | None = None
-        
+
         # Configuration
         self._executables: list[Executable] = []
         self._wine_config = WineConfig()
         self._app_metadata: AppMetadata | None = None
         self._install_config = InstallConfig()
         self._exclusions: list[str] = list(self.DEFAULT_EXCLUSIONS)
-        
+        self._update_prefix = update_prefix
+
         # State
         self._normalized = False
         self._export_path: Path | None = None
@@ -243,6 +244,44 @@ class PrefixCapture:
         
         self._normalized = True
 
+    def _update_prefix_with_wineboot(self) -> None:
+        """
+        Run wineboot -u to update the prefix before capture.
+
+        This prevents Wine from running wineboot on first user launch,
+        which causes massive file copy-ups in overlay mode.
+        """
+        import subprocess
+        import sys
+
+        try:
+            env = os.environ.copy()
+            env['WINEPREFIX'] = str(self.prefix_path)
+
+            # Run wineboot -u with no output
+            result = subprocess.run(
+                ['wineboot', '-u'],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=60,
+            )
+
+            # Wait a bit for wineboot to finish background tasks
+            import time
+            time.sleep(2)
+
+        except subprocess.TimeoutExpired:
+            # Wineboot took too long, continue anyway
+            pass
+        except FileNotFoundError:
+            # Wine not installed on build system - warn but continue
+            print("Warning: wineboot not found - prefix may trigger updates on first user run",
+                  file=sys.stderr)
+        except Exception as e:
+            # Other error - warn but continue
+            print(f"Warning: wineboot failed: {e}", file=sys.stderr)
+
     def export(
         self,
         output_path: Path | str,
@@ -250,7 +289,7 @@ class PrefixCapture:
     ) -> PackageSpec:
         """
         Export normalized prefix to intermediate format.
-        
+
         Args:
             output_path: Directory to create intermediate structure in
             progress: Optional rich Progress instance for UI feedback
@@ -260,13 +299,17 @@ class PrefixCapture:
         """
         if not self._normalized:
             self.normalize()
-        
+
+        # Update prefix with wineboot to prevent first-run updates
+        if self._update_prefix:
+            self._update_prefix_with_wineboot()
+
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
         self._export_path = output_path
-        
+
         analysis = self.analyze()
-        
+
         # Create directory structure
         prefix_template = output_path / "prefix-template"
         icons_dir = output_path / "icons"
