@@ -143,30 +143,42 @@ def _generate_overlay_init(system_path: str, user_data_path: str) -> str:
             
             # Create user directory structure in upper
             mkdir -p "$UPPER_DIR/drive_c/users/$ACTUAL_USER"
-            
-            # Create dosdevices in upper
+
+            # Create fresh dosdevices in upper (will overlay any from template)
             mkdir -p "$UPPER_DIR/dosdevices"
-            ln -sf "../drive_c" "$UPPER_DIR/dosdevices/c:"
-            ln -sf "/" "$UPPER_DIR/dosdevices/z:"
+            rm -f "$UPPER_DIR/dosdevices/c:" "$UPPER_DIR/dosdevices/z:"
+            ln -s "../drive_c" "$UPPER_DIR/dosdevices/c:"
+            ln -s "/" "$UPPER_DIR/dosdevices/z:"
             
             echo "Overlay initialized"
         }
         
         mount_overlay() {
             if ! mountpoint -q "$MERGED_DIR" 2>/dev/null; then
-                fuse-overlayfs \\
-                    -o lowerdir="$SYSTEM_PREFIX" \\
-                    -o upperdir="$UPPER_DIR" \\
-                    -o workdir="$WORK_DIR_OVL" \\
-                    "$MERGED_DIR"
+                if ! fuse-overlayfs \
+                    -o lowerdir="$SYSTEM_PREFIX" \
+                    -o upperdir="$UPPER_DIR" \
+                    -o workdir="$WORK_DIR_OVL" \
+                    "$MERGED_DIR" 2>/dev/null; then
+                    echo "Error: Failed to mount overlay filesystem" >&2
+                    echo "Try running: rm -rf $USER_DATA" >&2
+                    exit 1
+                fi
             fi
         }
-        
+
         if [[ ! -d "$UPPER_DIR" ]]; then
             initialize_overlay
         fi
-        
+
         mount_overlay
+
+        # Verify mount succeeded
+        if [[ ! -d "$MERGED_DIR/drive_c" ]]; then
+            echo "Error: Overlay mount failed - drive_c not found" >&2
+            fusermount -u "$MERGED_DIR" 2>/dev/null || true
+            exit 1
+        fi
         
         # Ensure overlay is unmounted on exit
         cleanup() {
@@ -210,16 +222,26 @@ def _generate_bundled_wine_block(system_path: str, bundled_path: str) -> str:
     ''')
 
 
-def generate_desktop_file(spec: PackageSpec, exe: Executable) -> str:
+def generate_desktop_file(spec: PackageSpec, exe: Executable, exe_index: int = 0) -> str:
     """
     Generate .desktop file for an executable.
-    """
-    # Use the /usr/bin symlink for Exec (more standard)
-    exec_name = spec.app.name if exe.id == "main" else f"{spec.app.name}-{exe.id}"
 
-    # Icon name matches the executable name for consistency
+    Args:
+        spec: Package specification
+        exe: Executable to generate desktop file for
+        exe_index: Index of this executable in the spec (0 for first)
+    """
+    # Determine command name (must match builder.py logic)
+    if exe.command:
+        exec_name = exe.command
+    elif exe_index == 0:
+        exec_name = spec.app.name
+    else:
+        exec_name = f"{spec.app.name}-{exe.id}"
+
+    # Icon name matches the executable command name for consistency
     if exe.icon:
-        icon = spec.app.name if exe.id == "main" else f"{spec.app.name}-{exe.id}"
+        icon = exec_name
     else:
         icon = "wine"
 
@@ -247,18 +269,25 @@ def generate_desktop_file(spec: PackageSpec, exe: Executable) -> str:
 def generate_all_launchers(spec: PackageSpec) -> dict[str, str]:
     """
     Generate all launcher scripts for a package.
-    
+
     Returns:
         Dict mapping filename to content
     """
     results = {}
-    
-    for exe in spec.executables:
+
+    for i, exe in enumerate(spec.executables):
         script_name = exe.id
         results[f"bin/{script_name}"] = generate_launcher_script(spec, exe)
-        
+
         if exe.create_desktop_entry:
-            desktop_name = f"{spec.app.name}-{exe.id}.desktop" if exe.id != "main" else f"{spec.app.name}.desktop"
-            results[f"share/applications/{desktop_name}"] = generate_desktop_file(spec, exe)
-    
+            # Desktop file name matches command name
+            if exe.command:
+                desktop_name = f"{exe.command}.desktop"
+            elif i == 0:
+                desktop_name = f"{spec.app.name}.desktop"
+            else:
+                desktop_name = f"{spec.app.name}-{exe.id}.desktop"
+
+            results[f"share/applications/{desktop_name}"] = generate_desktop_file(spec, exe, i)
+
     return results

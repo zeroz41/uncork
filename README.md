@@ -60,20 +60,41 @@ uncork build ./myapp-intermediate \
     --format pacman
 ```
 
- Custom Icon Support - You can now specify custom icon files per executable:
-  # CLI usage
-  uncork capture ~/.wine-prefix \
-      --output ./intermediate \
-      --exe "MyGame:drive_c/game.exe" \
-      --icon "mygame:/path/to/custom-icon.png"
+#### Multiple Executables
 
-  # Python API usage
-  capture.add_executable(
-      id="mygame",
-      name="My Game",
-      path="drive_c/game.exe",
-      custom_icon_path="/path/to/custom-icon.png"
-  )
+You can package multiple executables in a single package:
+
+```bash
+# Automatic command naming (first exe gets app name, others get suffixed)
+uncork capture ~/.wine-game \
+    --output ./intermediate \
+    --exe "My Game:drive_c/game/launcher.exe" \
+    --exe "Settings:drive_c/game/settings.exe" \
+    --app-name mygame \
+    --wine-mode system
+
+# This creates commands: "mygame" and "mygame-settings"
+
+# Or specify custom command names for full control
+uncork capture ~/.wine-game \
+    --output ./intermediate \
+    --exe "My Game:drive_c/game/launcher.exe:mygame" \
+    --exe "Settings:drive_c/game/settings.exe:mygame-config" \
+    --app-name mygame \
+    --wine-mode system
+
+# This creates commands: "mygame" and "mygame-config"
+```
+
+#### Custom Icons
+
+```bash
+# Specify custom icon files per executable
+uncork capture ~/.wine-prefix \
+    --output ./intermediate \
+    --exe "MyGame:drive_c/game.exe" \
+    --icon "mygame:/path/to/custom-icon.png"
+```
 
 ### Python API
 

@@ -188,18 +188,45 @@ class RpmBuilder(FormatBuilder):
     def _create_post_script(self, action: str) -> str:
         """Create a temporary post-install/remove script and return path."""
         import tempfile
-        
-        script = dedent('''\
+
+        app_name = self.spec.app.name
+        use_overlay = self.spec.install.use_overlay
+
+        cleanup_block = ""
+        if action == "remove" and use_overlay:
+            cleanup_block = dedent(f'''
+            # Unmount and clean up overlay mounts for all users
+            for user_home in /home/*; do
+                [[ -d "$user_home" ]] || continue
+                username=$(basename "$user_home")
+                user_data="${{user_home}}/.local/share/{app_name}"
+                merged_dir="${{user_data}}/prefix"
+
+                # Unmount if mounted (as the user)
+                if mountpoint -q "$merged_dir" 2>/dev/null; then
+                    su - "$username" -c "fusermount -u '$merged_dir'" 2>/dev/null || \\
+                    fusermount -u "$merged_dir" 2>/dev/null || true
+                fi
+
+                # Remove user data directory
+                if [[ -d "$user_data" ]]; then
+                    rm -rf "$user_data" 2>/dev/null || true
+                fi
+            done
+            ''')
+
+        script = dedent(f'''\
             #!/bin/bash
             update-desktop-database /usr/share/applications &>/dev/null || true
             gtk-update-icon-cache /usr/share/icons/hicolor &>/dev/null || true
+            {cleanup_block}
         ''')
-        
+
         fd, path = tempfile.mkstemp(suffix=f"-{action}.sh")
         os.write(fd, script.encode())
         os.close(fd)
         os.chmod(path, 0o755)
-        
+
         return path
 
     def _has_fpm(self) -> bool:

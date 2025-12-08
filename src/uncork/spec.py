@@ -26,6 +26,7 @@ class Executable(BaseModel):
     id: str = Field(description="Unique identifier for this executable")
     name: str = Field(description="Human-readable name for menus/launchers")
     path: str = Field(description="Path relative to prefix, e.g. 'drive_c/Program Files/App/app.exe'")
+    command: Optional[str] = Field(default=None, description="Command name (defaults to id)")
     args: str = Field(default="", description="Default command-line arguments")
     working_dir: Optional[str] = Field(default=None, description="Working directory relative to prefix")
     icon: Optional[str] = Field(default=None, description="Path to icon file in intermediate structure")

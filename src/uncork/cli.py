@@ -9,6 +9,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -101,10 +102,11 @@ def analyze(prefix_path: Path):
 @click.option("-o", "--output", required=True, type=click.Path(path_type=Path),
               help="Output directory for intermediate format")
 @click.option("--exe", "-e", multiple=True,
-              help="Executable to include: 'Name:path/to/exe.exe' (can specify multiple)")
+              help="Executable: 'Name:path[:command]' - command is optional (can specify multiple)")
 @click.option("--icon", "-i", multiple=True,
               help="Custom icon: 'exe-id:path/to/icon.png' (can specify multiple)")
-@click.option("--name", help="Package name (default: derived from first executable)")
+@click.option("--app-name", help="Application/package name (default: derived from first executable)")
+@click.option("--name", help="Deprecated: use --app-name instead")
 @click.option("--version", "pkg_version", default="1.0.0", help="Package version")
 @click.option("--wine-mode", type=click.Choice(["system", "bundled"]), default="system",
               help="Wine runtime mode")
@@ -121,6 +123,7 @@ def capture(
     output: Path,
     exe: tuple[str, ...],
     icon: tuple[str, ...],
+    app_name: str | None,
     name: str | None,
     pkg_version: str,
     wine_mode: str,
@@ -131,18 +134,26 @@ def capture(
 ):
     """Capture and normalize a Wine prefix."""
     from uncork.capture import PrefixCapture, CaptureError
-    
+
     if not exe:
-        console.print("[red]Error:[/red] At least one executable required. Use --exe 'Name:path'")
+        console.print("[red]Error:[/red] At least one executable required. Use --exe 'Name:path[:command]'")
         console.print()
-        console.print("Example:")
+        console.print("Examples:")
         console.print("  uncork capture ~/.wine -o ./output --exe 'My Game:drive_c/Games/game.exe'")
+        console.print("  uncork capture ~/.wine -o ./output \\")
+        console.print("    --exe 'Game:drive_c/game.exe:mygame' \\")
+        console.print("    --exe 'Tool:drive_c/tool.exe:gametool'")
         sys.exit(1)
-    
+
     if wine_mode == "bundled" and not wine_path:
         console.print("[red]Error:[/red] --wine-path required for bundled mode")
         sys.exit(1)
-    
+
+    # Handle deprecated --name option
+    if name and not app_name:
+        console.print("[yellow]Warning:[/yellow] --name is deprecated, use --app-name instead")
+        app_name = name
+
     try:
         capture_obj = PrefixCapture(prefix_path, update_prefix=not no_wineboot_update)
 
@@ -157,20 +168,37 @@ def capture(
             icon_id, icon_path = icon_spec.split(":", 1)
             custom_icons[icon_id.strip()] = Path(icon_path.strip())
 
+        # Track exe IDs to handle duplicates
+        exe_id_counts: dict[str, int] = {}
+
         # Parse and add executables
         for exe_spec in exe:
-            if ":" not in exe_spec:
+            parts = exe_spec.split(":")
+            if len(parts) < 2:
                 console.print(f"[red]Error:[/red] Invalid executable format: {exe_spec}")
-                console.print("Expected format: 'Display Name:path/to/file.exe'")
+                console.print("Expected format: 'Display Name:path/to/file.exe[:command]'")
                 sys.exit(1)
 
-            exe_name, exe_path = exe_spec.split(":", 1)
-            exe_id = exe_name.lower().replace(" ", "-")
+            exe_name = parts[0].strip()
+            exe_path = parts[1].strip()
+            exe_command = parts[2].strip() if len(parts) >= 3 else None
+
+            # Generate unique ID from name
+            base_id = re.sub(r'[^a-z0-9]', '-', exe_name.lower()).strip('-')
+
+            # Handle duplicate IDs by appending number
+            if base_id in exe_id_counts:
+                exe_id_counts[base_id] += 1
+                exe_id = f"{base_id}-{exe_id_counts[base_id]}"
+            else:
+                exe_id_counts[base_id] = 0
+                exe_id = base_id
 
             capture_obj.add_executable(
                 id=exe_id,
-                name=exe_name.strip(),
-                path=exe_path.strip(),
+                name=exe_name,
+                path=exe_path,
+                command=exe_command,
                 custom_icon_path=custom_icons.get(exe_id),
             )
         
@@ -179,12 +207,12 @@ def capture(
             capture_obj.set_wine_mode("bundled", bundled_wine_path=str(wine_path))
         else:
             capture_obj.set_wine_mode("system", min_version=min_wine_version)
-        
+
         # Set metadata
-        if name:
+        if app_name:
             capture_obj.set_app_metadata(
-                name=name,
-                display_name=name,
+                name=app_name,
+                display_name=app_name,
                 version=pkg_version,
             )
         

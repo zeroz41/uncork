@@ -96,6 +96,7 @@ class PrefixCapture:
         name: str,
         path: str,
         *,
+        command: str | None = None,
         args: str = "",
         working_dir: str | None = None,
         icon_source: str | None = None,
@@ -110,6 +111,7 @@ class PrefixCapture:
             id: Unique identifier (used in filenames)
             name: Human-readable name for menus
             path: Path relative to prefix (e.g., "drive_c/Program Files/App/app.exe")
+            command: Custom command name (defaults to auto-generated from position)
             args: Default command-line arguments
             working_dir: Working directory relative to prefix
             icon_source: Path to extract icon from within prefix (defaults to exe path)
@@ -132,6 +134,7 @@ class PrefixCapture:
             id=id,
             name=name,
             path=path,
+            command=command,
             args=args,
             working_dir=working_dir or str(Path(path).parent),
             icon=None,  # Set during normalization

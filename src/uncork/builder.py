@@ -150,13 +150,22 @@ class PackageBuilder:
         # 5. Create /usr/bin symlinks for easy CLI access
         usr_bin = staging_root / "usr" / "bin"
         usr_bin.mkdir(parents=True, exist_ok=True)
-        
-        for exe in self.spec.executables:
-            # Symlink /usr/bin/appname -> /opt/appname/bin/main
-            link_name = self.spec.app.name if exe.id == "main" else f"{self.spec.app.name}-{exe.id}"
+
+        for i, exe in enumerate(self.spec.executables):
+            # Determine command name
+            if exe.command:
+                # Use explicit command name if provided
+                link_name = exe.command
+            elif i == 0:
+                # First executable gets the app name (no suffix)
+                link_name = self.spec.app.name
+            else:
+                # Additional executables get app-name-exe-id format
+                link_name = f"{self.spec.app.name}-{exe.id}"
+
             link_path = usr_bin / link_name
             target = f"{system_path}/bin/{exe.id}"
-            
+
             link_path.symlink_to(target)
         
         # 6. Install icons to standard locations
