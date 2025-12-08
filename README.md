@@ -232,3 +232,6 @@ Issues and PRs welcome.
 ## License
 
 GPLv3
+
+
+STILL TO DO, remove wine gui popup windows. its hauniting me

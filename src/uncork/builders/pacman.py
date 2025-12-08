@@ -97,10 +97,41 @@ class PacmanBuilder(FormatBuilder):
                     user_data="${{user_home}}/.local/share/{app_name}"
                     merged_dir="${{user_data}}/prefix"
 
-                    # Unmount if mounted (as the user)
-                    if mountpoint -q "$merged_dir" 2>/dev/null; then
-                        su - "$username" -c "fusermount -u '$merged_dir'" 2>/dev/null || \
-                        fusermount -u "$merged_dir" 2>/dev/null || true
+                    echo "Checking user: $username" >> /tmp/pso-pre-remove.log
+                    echo "  user_data: $user_data" >> /tmp/pso-pre-remove.log
+                    echo "  merged_dir: $merged_dir" >> /tmp/pso-pre-remove.log
+
+                    # Check if mounted using mount command (more reliable)
+                    if mount | grep -q "$merged_dir"; then
+                        echo "Found mount at $merged_dir, forcing unmount..." >> /tmp/pso-pre-remove.log
+
+                        # Try multiple times with increasing aggression
+                        for attempt in {{1..10}}; do
+                            echo "Attempt $attempt..." >> /tmp/pso-pre-remove.log
+
+                            # Kill all wine processes first
+                            pkill -9 -u "$username" wine 2>/dev/null || true
+                            pkill -9 -u "$username" wineserver 2>/dev/null || true
+
+                            # Kill anything using the mount
+                            fuser -km "$merged_dir" 2>/dev/null || true
+                            sleep 0.2
+
+                            # Try lazy unmount as user
+                            su "$username" -c "fusermount -uz '$merged_dir' 2>/dev/null" && break
+
+                            # If that failed, try as root with force
+                            umount -l "$merged_dir" 2>/dev/null && break
+
+                            sleep 0.5
+                        done
+
+                        # Final check
+                        if mount | grep -q "$merged_dir"; then
+                            echo "ERROR: Failed to unmount after 10 attempts!" >> /tmp/pso-pre-remove.log
+                        else
+                            echo "Successfully force-unmounted!" >> /tmp/pso-pre-remove.log
+                        fi
                     fi
 
                     # Remove user data directory
@@ -110,7 +141,7 @@ class PacmanBuilder(FormatBuilder):
                 done
             ''')
 
-        return dedent(f'''\
+        script = dedent(f'''\
             post_install() {{
                 # Update desktop database
                 if command -v update-desktop-database &>/dev/null; then
@@ -126,11 +157,31 @@ class PacmanBuilder(FormatBuilder):
             post_upgrade() {{
                 post_install
             }}
+        ''')
+
+        if use_overlay:
+            script += dedent(f'''\
+
+            pre_remove() {{
+                echo "PRE_REMOVE HOOK RUNNING" > /tmp/pso-pre-remove.log
+                date >> /tmp/pso-pre-remove.log
+{cleanup_block}
+                echo "PRE_REMOVE HOOK COMPLETE" >> /tmp/pso-pre-remove.log
+            }}
 
             post_remove() {{
-                post_install{cleanup_block}
+                post_install
             }}
-        ''')
+            ''')
+        else:
+            script += dedent('''\
+
+            post_remove() {
+                post_install
+            }
+            ''')
+
+        return script
 
     def _build_package(self) -> Path:
         """Build the .pkg.tar.zst package."""

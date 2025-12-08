@@ -40,7 +40,14 @@ class DebBuilder(FormatBuilder):
         postinst_path = debian_dir / "postinst"
         postinst_path.write_text(postinst)
         postinst_path.chmod(0o755)
-        
+
+        # Write prerm script (pre-removal)
+        if self.spec.install.use_overlay:
+            prerm = self._generate_prerm()
+            prerm_path = debian_dir / "prerm"
+            prerm_path.write_text(prerm)
+            prerm_path.chmod(0o755)
+
         # Write postrm script
         postrm = self._generate_postrm()
         postrm_path = debian_dir / "postrm"
@@ -110,17 +117,50 @@ class DebBuilder(FormatBuilder):
         return dedent('''\
             #!/bin/bash
             set -e
-            
+
             # Update desktop database
             if command -v update-desktop-database &>/dev/null; then
                 update-desktop-database -q /usr/share/applications || true
             fi
-            
+
             # Update icon cache
             if command -v gtk-update-icon-cache &>/dev/null; then
                 gtk-update-icon-cache -q /usr/share/icons/hicolor || true
             fi
-            
+
+            exit 0
+        ''')
+
+    def _generate_prerm(self) -> str:
+        """Generate pre-removal script to unmount overlays."""
+        app_name = self.spec.app.name
+
+        return dedent(f'''\
+            #!/bin/bash
+            set -e
+
+            # Unmount and clean up overlay mounts for all users
+            for user_home in /home/*; do
+                [[ -d "$user_home" ]] || continue
+                username=$(basename "$user_home")
+                user_data="${{user_home}}/.local/share/{app_name}"
+                merged_dir="${{user_data}}/prefix"
+
+                # Unmount if mounted (must run as user for FUSE mounts)
+                if mountpoint -q "$merged_dir" 2>/dev/null; then
+                    # Force kill any processes using the mount
+                    fuser -km "$merged_dir" 2>/dev/null || true
+                    sleep 0.5
+                    # Unmount as the user (FUSE mounts are user-owned)
+                    su "$username" -c "fusermount -uz '$merged_dir'" 2>/dev/null || true
+                fi
+
+                # Remove user data directory
+                if [[ -d "$user_data" ]]; then
+                    rm -rf "$user_data" 2>/dev/null || true
+                fi
+            done
+
             exit 0
         ''')
 

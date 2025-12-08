@@ -169,11 +169,28 @@ class RpmBuilder(FormatBuilder):
             %post
             /usr/bin/update-desktop-database /usr/share/applications &>/dev/null || :
             /usr/bin/gtk-update-icon-cache /usr/share/icons/hicolor &>/dev/null || :
-            
+
+            %preun
+            # Unmount and clean up overlay mounts for all users
+            for user_home in /home/*; do
+                [ -d "$user_home" ] || continue
+                username=$(basename "$user_home")
+                user_data="${{user_home}}/.local/share/{self.package_name}"
+                merged_dir="${{user_data}}/prefix"
+                if mountpoint -q "$merged_dir" 2>/dev/null; then
+                    fuser -km "$merged_dir" 2>/dev/null || :
+                    sleep 0.5
+                    su "$username" -c "fusermount -uz '$merged_dir'" 2>/dev/null || :
+                fi
+                if [ -d "$user_data" ]; then
+                    rm -rf "$user_data" 2>/dev/null || :
+                fi
+            done
+
             %postun
             /usr/bin/update-desktop-database /usr/share/applications &>/dev/null || :
             /usr/bin/gtk-update-icon-cache /usr/share/icons/hicolor &>/dev/null || :
-            
+
             %files
             /opt/{self.package_name}
             /usr/bin/{self.package_name}
