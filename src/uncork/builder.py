@@ -8,6 +8,7 @@ import shutil
 import stat
 from abc import ABC, abstractmethod
 from pathlib import Path
+from textwrap import dedent
 from typing import TYPE_CHECKING
 
 from uncork.launcher import generate_all_launchers
@@ -236,3 +237,53 @@ class FormatBuilder(ABC):
     @property
     def package_description(self) -> str:
         return self.spec.app.description
+
+    def generate_overlay_unmount_script(self) -> str:
+        """
+        Generate universal overlay filesystem unmounting script.
+
+        This script works reliably across all package formats (deb, pacman, rpm).
+        It uses an aggressive retry strategy to ensure overlays are unmounted during
+        package removal, even if Wine processes are running.
+
+        Returns:
+            Bash script code (no shebang) that unmounts all user overlays
+        """
+        app_name = self.spec.app.name
+
+        return dedent(f'''\
+            # Unmount and clean up overlay mounts for all users
+            for user_home in /home/*; do
+                [[ -d "$user_home" ]] || continue
+                username=$(basename "$user_home")
+                user_data="${{user_home}}/.local/share/{app_name}"
+                merged_dir="${{user_data}}/prefix"
+
+                # Check if mounted using mount command (more reliable than mountpoint)
+                if mount | grep -q "$merged_dir"; then
+                    # Try multiple times with increasing aggression
+                    for attempt in {{1..10}}; do
+                        # Kill all wine processes first
+                        pkill -9 -u "$username" wine 2>/dev/null || true
+                        pkill -9 -u "$username" wineserver 2>/dev/null || true
+
+                        # Kill anything using the mount
+                        fuser -km "$merged_dir" 2>/dev/null || true
+                        sleep 0.2
+
+                        # Try lazy unmount as user (FUSE mounts are user-owned)
+                        su "$username" -c "fusermount -uz '$merged_dir' 2>/dev/null" && break
+
+                        # If that failed, try as root with force
+                        umount -l "$merged_dir" 2>/dev/null && break
+
+                        sleep 0.5
+                    done
+                fi
+
+                # Remove user data directory
+                if [[ -d "$user_data" ]]; then
+                    rm -rf "$user_data" 2>/dev/null || true
+                fi
+            done
+        ''')

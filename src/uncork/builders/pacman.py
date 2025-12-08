@@ -83,63 +83,12 @@ class PacmanBuilder(FormatBuilder):
 
     def _generate_install_script(self) -> str:
         """Generate .INSTALL scriptlet."""
-        app_name = self.spec.app.name
         use_overlay = self.spec.install.use_overlay
 
         cleanup_block = ""
         if use_overlay:
-            cleanup_block = dedent(f'''\
-
-                # Unmount and clean up overlay mounts for all users
-                for user_home in /home/*; do
-                    [[ -d "$user_home" ]] || continue
-                    username=$(basename "$user_home")
-                    user_data="${{user_home}}/.local/share/{app_name}"
-                    merged_dir="${{user_data}}/prefix"
-
-                    echo "Checking user: $username" >> /tmp/pso-pre-remove.log
-                    echo "  user_data: $user_data" >> /tmp/pso-pre-remove.log
-                    echo "  merged_dir: $merged_dir" >> /tmp/pso-pre-remove.log
-
-                    # Check if mounted using mount command (more reliable)
-                    if mount | grep -q "$merged_dir"; then
-                        echo "Found mount at $merged_dir, forcing unmount..." >> /tmp/pso-pre-remove.log
-
-                        # Try multiple times with increasing aggression
-                        for attempt in {{1..10}}; do
-                            echo "Attempt $attempt..." >> /tmp/pso-pre-remove.log
-
-                            # Kill all wine processes first
-                            pkill -9 -u "$username" wine 2>/dev/null || true
-                            pkill -9 -u "$username" wineserver 2>/dev/null || true
-
-                            # Kill anything using the mount
-                            fuser -km "$merged_dir" 2>/dev/null || true
-                            sleep 0.2
-
-                            # Try lazy unmount as user
-                            su "$username" -c "fusermount -uz '$merged_dir' 2>/dev/null" && break
-
-                            # If that failed, try as root with force
-                            umount -l "$merged_dir" 2>/dev/null && break
-
-                            sleep 0.5
-                        done
-
-                        # Final check
-                        if mount | grep -q "$merged_dir"; then
-                            echo "ERROR: Failed to unmount after 10 attempts!" >> /tmp/pso-pre-remove.log
-                        else
-                            echo "Successfully force-unmounted!" >> /tmp/pso-pre-remove.log
-                        fi
-                    fi
-
-                    # Remove user data directory
-                    if [[ -d "$user_data" ]]; then
-                        rm -rf "$user_data" 2>/dev/null || true
-                    fi
-                done
-            ''')
+            # Use the universal unmounting script from base class
+            cleanup_block = "\n" + self.generate_overlay_unmount_script()
 
         script = dedent(f'''\
             post_install() {{
@@ -162,11 +111,7 @@ class PacmanBuilder(FormatBuilder):
         if use_overlay:
             script += dedent(f'''\
 
-            pre_remove() {{
-                echo "PRE_REMOVE HOOK RUNNING" > /tmp/pso-pre-remove.log
-                date >> /tmp/pso-pre-remove.log
-{cleanup_block}
-                echo "PRE_REMOVE HOOK COMPLETE" >> /tmp/pso-pre-remove.log
+            pre_remove() {{{cleanup_block}
             }}
 
             post_remove() {{

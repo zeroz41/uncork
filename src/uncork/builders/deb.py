@@ -133,65 +133,25 @@ class DebBuilder(FormatBuilder):
 
     def _generate_prerm(self) -> str:
         """Generate pre-removal script to unmount overlays."""
-        app_name = self.spec.app.name
+        # Use the universal unmounting script from base class
+        unmount_script = self.generate_overlay_unmount_script()
 
         return dedent(f'''\
             #!/bin/bash
             set -e
 
-            # Unmount and clean up overlay mounts for all users
-            for user_home in /home/*; do
-                [[ -d "$user_home" ]] || continue
-                username=$(basename "$user_home")
-                user_data="${{user_home}}/.local/share/{app_name}"
-                merged_dir="${{user_data}}/prefix"
-
-                # Unmount if mounted (must run as user for FUSE mounts)
-                if mountpoint -q "$merged_dir" 2>/dev/null; then
-                    # Force kill any processes using the mount
-                    fuser -km "$merged_dir" 2>/dev/null || true
-                    sleep 0.5
-                    # Unmount as the user (FUSE mounts are user-owned)
-                    su "$username" -c "fusermount -uz '$merged_dir'" 2>/dev/null || true
-                fi
-
-                # Remove user data directory
-                if [[ -d "$user_data" ]]; then
-                    rm -rf "$user_data" 2>/dev/null || true
-                fi
-            done
-
+            {unmount_script}
             exit 0
         ''')
 
     def _generate_postrm(self) -> str:
         """Generate post-removal script."""
-        app_name = self.spec.app.name
         use_overlay = self.spec.install.use_overlay
 
         cleanup_block = ""
         if use_overlay:
-            cleanup_block = dedent(f'''
-            # Unmount and clean up overlay mounts for all users
-            for user_home in /home/*; do
-                [[ -d "$user_home" ]] || continue
-                username=$(basename "$user_home")
-                user_data="${{user_home}}/.local/share/{app_name}"
-                merged_dir="${{user_data}}/prefix"
-
-                # Unmount if mounted (as the user)
-                if mountpoint -q "$merged_dir" 2>/dev/null; then
-                    su - "$username" -c "fusermount -u '$merged_dir'" 2>/dev/null || \\
-                    fusermount -u "$merged_dir" 2>/dev/null || true
-                fi
-
-                # Remove user data directory
-                if [[ -d "$user_data" ]]; then
-                    rm -rf "$user_data" 2>/dev/null || true
-                fi
-            done
-
-            ''')
+            # Use the universal unmounting script from base class
+            cleanup_block = self.generate_overlay_unmount_script() + "\n"
 
         return dedent(f'''\
             #!/bin/bash
