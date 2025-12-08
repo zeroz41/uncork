@@ -256,12 +256,34 @@ class PrefixCapture:
         """
         import subprocess
         import sys
+        import shutil
 
         try:
             env = os.environ.copy()
             env['WINEPREFIX'] = str(self.prefix_path)
+            env['WINEDEBUG'] = '-all'
 
-            # Run wineboot -u with no output
+            # Kill any running wineserver for this prefix
+            try:
+                subprocess.run(
+                    ['wineserver', '-k'],
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+            except Exception:
+                pass
+
+            # Completely disable all display connections
+            # Remove all display-related environment variables
+            for var in ['DISPLAY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'WAYLAND_SOCKET']:
+                env.pop(var, None)
+
+            # Set display to invalid value as backup
+            env['DISPLAY'] = ''
+            env['WAYLAND_DISPLAY'] = ''
+
             result = subprocess.run(
                 ['wineboot', '-u'],
                 env=env,
@@ -270,7 +292,7 @@ class PrefixCapture:
                 timeout=60,
             )
 
-            # Wait a bit for wineboot to finish background tasks
+            # Wait for wineboot to finish background tasks
             import time
             time.sleep(2)
 

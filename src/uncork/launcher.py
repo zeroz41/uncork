@@ -128,11 +128,24 @@ def _generate_overlay_init(system_path: str, user_data_path: str) -> str:
         UPPER_DIR="$USER_DATA/upperdir"
         WORK_DIR_OVL="$USER_DATA/workdir"
         MERGED_DIR="$USER_PREFIX"
-        
+
+        # Cleanup function - unmount overlay
+        cleanup_overlay() {
+            if mountpoint -q "$MERGED_DIR" 2>/dev/null; then
+                fusermount -u "$MERGED_DIR" 2>/dev/null || true
+            fi
+        }
+
+        # Set up cleanup trap immediately
+        trap cleanup_overlay EXIT INT TERM
+
+        # Clean up any stale mounts before starting
+        cleanup_overlay
+
         initialize_overlay() {
             echo "First run - initializing overlay..."
             mkdir -p "$UPPER_DIR" "$WORK_DIR_OVL" "$MERGED_DIR"
-            
+
             # Create initial registry files in upper layer with tokens replaced
             for reg in system.reg user.reg userdef.reg; do
                 if [[ -f "$SYSTEM_PREFIX/$reg" ]]; then
@@ -140,7 +153,7 @@ def _generate_overlay_init(system_path: str, user_data_path: str) -> str:
                         "$SYSTEM_PREFIX/$reg" > "$UPPER_DIR/$reg"
                 fi
             done
-            
+
             # Create user directory structure in upper
             mkdir -p "$UPPER_DIR/drive_c/users/$ACTUAL_USER"
 
@@ -149,10 +162,10 @@ def _generate_overlay_init(system_path: str, user_data_path: str) -> str:
             rm -f "$UPPER_DIR/dosdevices/c:" "$UPPER_DIR/dosdevices/z:"
             ln -s "../drive_c" "$UPPER_DIR/dosdevices/c:"
             ln -s "/" "$UPPER_DIR/dosdevices/z:"
-            
+
             echo "Overlay initialized"
         }
-        
+
         mount_overlay() {
             if ! mountpoint -q "$MERGED_DIR" 2>/dev/null; then
                 if ! fuse-overlayfs \
@@ -161,11 +174,19 @@ def _generate_overlay_init(system_path: str, user_data_path: str) -> str:
                     -o workdir="$WORK_DIR_OVL" \
                     "$MERGED_DIR" 2>/dev/null; then
                     echo "Error: Failed to mount overlay filesystem" >&2
-                    echo "Try running: rm -rf $USER_DATA" >&2
+                    echo "Try running: $0 --cleanup" >&2
                     exit 1
                 fi
             fi
         }
+
+        # Handle --cleanup flag
+        if [[ "${1:-}" == "--cleanup" ]]; then
+            echo "Cleaning up overlay mount..."
+            cleanup_overlay
+            echo "Cleanup complete. You can now remove user data with: rm -rf $USER_DATA"
+            exit 0
+        fi
 
         if [[ ! -d "$UPPER_DIR" ]]; then
             initialize_overlay
@@ -176,15 +197,9 @@ def _generate_overlay_init(system_path: str, user_data_path: str) -> str:
         # Verify mount succeeded
         if [[ ! -d "$MERGED_DIR/drive_c" ]]; then
             echo "Error: Overlay mount failed - drive_c not found" >&2
-            fusermount -u "$MERGED_DIR" 2>/dev/null || true
+            cleanup_overlay
             exit 1
         fi
-        
-        # Ensure overlay is unmounted on exit
-        cleanup() {
-            fusermount -u "$MERGED_DIR" 2>/dev/null || true
-        }
-        trap cleanup EXIT
     ''')
 
 
