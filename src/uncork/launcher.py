@@ -343,8 +343,8 @@ def generate_desktop_file(spec: PackageSpec, exe: Executable, exe_index: int = 0
 
     categories = ";".join(exe.categories) + ";"
 
-    # Use WM_CLASS matching the exe name (Wine reports with .exe extension)
-    wm_class = Path(exe.path).name
+    # Use WM_CLASS override when provided, otherwise derive from the exe filename
+    wm_class = exe.wm_class or Path(exe.path).name
 
     # Use direct path to launcher script (not symlink) for better compatibility
     system_path = spec.get_system_path()

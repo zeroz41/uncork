@@ -31,6 +31,7 @@ class Executable(BaseModel):
     working_dir: Optional[str] = Field(default=None, description="Working directory relative to prefix")
     icon: Optional[str] = Field(default=None, description="Path to icon file in intermediate structure")
     description: Optional[str] = Field(default=None, description="Description for .desktop file (falls back to app description)")
+    wm_class: Optional[str] = Field(default=None, description="Override StartupWMClass (defaults to exe filename)")
     create_desktop_entry: bool = Field(default=True, description="Whether to create .desktop file")
     categories: list[str] = Field(default_factory=lambda: ["Application"])
 

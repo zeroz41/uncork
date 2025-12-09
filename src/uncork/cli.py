@@ -109,6 +109,8 @@ def analyze(prefix_path: Path):
               help="Per-executable description: 'command:description' (can specify multiple)")
 @click.option("--exe-args", multiple=True,
               help="Per-executable arguments: 'command:args' (can specify multiple)")
+@click.option("--exe-wmclass", multiple=True,
+              help="Override WM_CLASS/StartupWMClass: 'command:wmclass' (can specify multiple)")
 @click.option("--app-name", help="Application/package name (default: derived from first executable)")
 @click.option("--name", help="Deprecated: use --app-name instead")
 @click.option("--version", "pkg_version", default="1.0.0", help="Package version")
@@ -129,6 +131,7 @@ def capture(
     icon: tuple[str, ...],
     exe_desc: tuple[str, ...],
     exe_args: tuple[str, ...],
+    exe_wmclass: tuple[str, ...],
     app_name: str | None,
     name: str | None,
     pkg_version: str,
@@ -200,6 +203,17 @@ def capture(
             cmd, arguments = args_spec.split(":", 1)
             exe_arguments[cmd.strip()] = arguments.strip()
 
+        # Parse per-executable WM_CLASS overrides
+        exe_wmclasses = {}
+        for wm_spec in exe_wmclass:
+            if ":" not in wm_spec:
+                console.print(f"[red]Error:[/red] Invalid exe-wmclass format: {wm_spec}")
+                console.print("Expected format: 'command:wmclass'")
+                sys.exit(1)
+
+            cmd, wmclass_val = wm_spec.split(":", 1)
+            exe_wmclasses[cmd.strip()] = wmclass_val.strip()
+
         # Track exe IDs to handle duplicates
         exe_id_counts: dict[str, int] = {}
 
@@ -241,6 +255,7 @@ def capture(
             exe_description = exe_descriptions.get(final_command)
             exe_args_str = exe_arguments.get(final_command, "")
             exe_custom_icon = custom_icons.get(final_command)
+            exe_wmclass_override = exe_wmclasses.get(final_command)
 
             capture_obj.add_executable(
                 id=exe_id,
@@ -250,6 +265,7 @@ def capture(
                 args=exe_args_str,
                 description=exe_description,
                 custom_icon_path=exe_custom_icon,
+                wm_class=exe_wmclass_override,
             )
         
         # Set Wine mode

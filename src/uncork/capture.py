@@ -104,6 +104,7 @@ class PrefixCapture:
         description: str | None = None,
         desktop_entry: bool = True,
         categories: list[str] | None = None,
+        wm_class: str | None = None,
     ) -> None:
         """
         Add an executable entry point.
@@ -120,6 +121,7 @@ class PrefixCapture:
             description: Description for .desktop file (falls back to app description if None)
             desktop_entry: Whether to create .desktop file
             categories: XDG categories for .desktop file
+            wm_class: Override StartupWMClass value (defaults to exe filename)
         """
         # Validate path exists
         full_path = self.prefix_path / path
@@ -143,6 +145,7 @@ class PrefixCapture:
             description=description,
             create_desktop_entry=desktop_entry,
             categories=categories or ["Application"],
+            wm_class=wm_class,
         )
 
         # Store icon source for later extraction
