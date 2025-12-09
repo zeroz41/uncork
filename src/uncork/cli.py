@@ -104,7 +104,11 @@ def analyze(prefix_path: Path):
 @click.option("--exe", "-e", multiple=True,
               help="Executable: 'Name:path[:command]' - command is optional (can specify multiple)")
 @click.option("--icon", "-i", multiple=True,
-              help="Custom icon: 'exe-id:path/to/icon.png' (can specify multiple)")
+              help="Custom icon: 'command:path/to/icon.png' (can specify multiple)")
+@click.option("--exe-desc", multiple=True,
+              help="Per-executable description: 'command:description' (can specify multiple)")
+@click.option("--exe-args", multiple=True,
+              help="Per-executable arguments: 'command:args' (can specify multiple)")
 @click.option("--app-name", help="Application/package name (default: derived from first executable)")
 @click.option("--name", help="Deprecated: use --app-name instead")
 @click.option("--version", "pkg_version", default="1.0.0", help="Package version")
@@ -123,6 +127,8 @@ def capture(
     output: Path,
     exe: tuple[str, ...],
     icon: tuple[str, ...],
+    exe_desc: tuple[str, ...],
+    exe_args: tuple[str, ...],
     app_name: str | None,
     name: str | None,
     pkg_version: str,
@@ -140,9 +146,13 @@ def capture(
         console.print()
         console.print("Examples:")
         console.print("  uncork capture ~/.wine -o ./output --exe 'My Game:drive_c/Games/game.exe'")
+        console.print()
         console.print("  uncork capture ~/.wine -o ./output \\")
         console.print("    --exe 'Game:drive_c/game.exe:mygame' \\")
-        console.print("    --exe 'Tool:drive_c/tool.exe:gametool'")
+        console.print("    --exe 'Settings:drive_c/settings.exe:mygame-settings' \\")
+        console.print("    --exe-desc 'mygame:Launch the game in fullscreen mode' \\")
+        console.print("    --exe-desc 'mygame-settings:Configure game settings' \\")
+        console.print("    --exe-args 'mygame:--fullscreen'")
         sys.exit(1)
 
     if wine_mode == "bundled" and not wine_path:
@@ -162,17 +172,39 @@ def capture(
         for icon_spec in icon:
             if ":" not in icon_spec:
                 console.print(f"[red]Error:[/red] Invalid icon format: {icon_spec}")
-                console.print("Expected format: 'exe-id:path/to/icon.png'")
+                console.print("Expected format: 'command:path/to/icon.png'")
                 sys.exit(1)
 
             icon_id, icon_path = icon_spec.split(":", 1)
             custom_icons[icon_id.strip()] = Path(icon_path.strip())
 
+        # Parse per-executable descriptions
+        exe_descriptions = {}
+        for desc_spec in exe_desc:
+            if ":" not in desc_spec:
+                console.print(f"[red]Error:[/red] Invalid exe-desc format: {desc_spec}")
+                console.print("Expected format: 'command:description'")
+                sys.exit(1)
+
+            cmd, description = desc_spec.split(":", 1)
+            exe_descriptions[cmd.strip()] = description.strip()
+
+        # Parse per-executable arguments
+        exe_arguments = {}
+        for args_spec in exe_args:
+            if ":" not in args_spec:
+                console.print(f"[red]Error:[/red] Invalid exe-args format: {args_spec}")
+                console.print("Expected format: 'command:args'")
+                sys.exit(1)
+
+            cmd, arguments = args_spec.split(":", 1)
+            exe_arguments[cmd.strip()] = arguments.strip()
+
         # Track exe IDs to handle duplicates
         exe_id_counts: dict[str, int] = {}
 
         # Parse and add executables
-        for exe_spec in exe:
+        for i, exe_spec in enumerate(exe):
             parts = exe_spec.split(":")
             if len(parts) < 2:
                 console.print(f"[red]Error:[/red] Invalid executable format: {exe_spec}")
@@ -194,12 +226,30 @@ def capture(
                 exe_id_counts[base_id] = 0
                 exe_id = base_id
 
+            # Determine the final command name (same logic as builder.py)
+            if exe_command:
+                # Explicit command name provided
+                final_command = exe_command
+            elif i == 0:
+                # First executable gets app name (will be set later if app_name is provided)
+                final_command = app_name if app_name else base_id
+            else:
+                # Additional executables get app-name-exe-id format
+                final_command = f"{app_name if app_name else base_id}-{exe_id}" if i > 0 else (app_name if app_name else base_id)
+
+            # Look up description, args, and icon by command name
+            exe_description = exe_descriptions.get(final_command)
+            exe_args_str = exe_arguments.get(final_command, "")
+            exe_custom_icon = custom_icons.get(final_command)
+
             capture_obj.add_executable(
                 id=exe_id,
                 name=exe_name,
                 path=exe_path,
                 command=exe_command,
-                custom_icon_path=custom_icons.get(exe_id),
+                args=exe_args_str,
+                description=exe_description,
+                custom_icon_path=exe_custom_icon,
             )
         
         # Set Wine mode

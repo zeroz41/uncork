@@ -339,6 +339,9 @@ def generate_desktop_file(spec: PackageSpec, exe: Executable, exe_index: int = 0
     else:
         icon = "wine"
 
+    # Use per-executable description if provided, otherwise fall back to app description
+    comment = exe.description if exe.description else spec.app.description
+
     categories = ";".join(exe.categories) + ";"
 
     # Use WM_CLASS matching the exe name (without .exe extension)
@@ -348,7 +351,7 @@ def generate_desktop_file(spec: PackageSpec, exe: Executable, exe_index: int = 0
         [Desktop Entry]
         Type=Application
         Name={exe.name}
-        Comment={spec.app.description}
+        Comment={comment}
         Exec={exec_name}
         Icon={icon}
         Terminal=false

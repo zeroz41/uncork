@@ -101,6 +101,7 @@ class PrefixCapture:
         working_dir: str | None = None,
         icon_source: str | None = None,
         custom_icon_path: str | Path | None = None,
+        description: str | None = None,
         desktop_entry: bool = True,
         categories: list[str] | None = None,
     ) -> None:
@@ -116,6 +117,7 @@ class PrefixCapture:
             working_dir: Working directory relative to prefix
             icon_source: Path to extract icon from within prefix (defaults to exe path)
             custom_icon_path: Absolute path to custom icon file (PNG/ICO) to use instead of extracting
+            description: Description for .desktop file (falls back to app description if None)
             desktop_entry: Whether to create .desktop file
             categories: XDG categories for .desktop file
         """
@@ -138,6 +140,7 @@ class PrefixCapture:
             args=args,
             working_dir=working_dir or str(Path(path).parent),
             icon=None,  # Set during normalization
+            description=description,
             create_desktop_entry=desktop_entry,
             categories=categories or ["Application"],
         )

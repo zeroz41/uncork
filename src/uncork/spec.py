@@ -30,6 +30,7 @@ class Executable(BaseModel):
     args: str = Field(default="", description="Default command-line arguments")
     working_dir: Optional[str] = Field(default=None, description="Working directory relative to prefix")
     icon: Optional[str] = Field(default=None, description="Path to icon file in intermediate structure")
+    description: Optional[str] = Field(default=None, description="Description for .desktop file (falls back to app description)")
     create_desktop_entry: bool = Field(default=True, description="Whether to create .desktop file")
     categories: list[str] = Field(default_factory=lambda: ["Application"])
 
