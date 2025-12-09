@@ -374,6 +374,7 @@ def generate_all_launchers(spec: PackageSpec) -> dict[str, str]:
         Dict mapping filename to content
     """
     results = {}
+    desktop_aliases: set[str] = set()
 
     # Generate cleanup script (used by package removal hooks)
     results["bin/cleanup"] = generate_cleanup_script(spec)
@@ -391,6 +392,16 @@ def generate_all_launchers(spec: PackageSpec) -> dict[str, str]:
             else:
                 desktop_name = f"{spec.app.name}-{exe.id}.desktop"
 
-            results[f"share/applications/{desktop_name}"] = generate_desktop_file(spec, exe, i)
+            desktop_content = generate_desktop_file(spec, exe, i)
+            desktop_path = f"share/applications/{desktop_name}"
+            results[desktop_path] = desktop_content
+
+            # Also emit an alias desktop file matching WM_CLASS so window managers
+            # can associate windows even when launched from CLI (some match by desktop ID).
+            if exe.wm_class and "/" not in exe.wm_class:
+                alias_path = f"share/applications/{exe.wm_class}.desktop"
+                if alias_path not in desktop_aliases:
+                    results[alias_path] = desktop_content
+                    desktop_aliases.add(alias_path)
 
     return results

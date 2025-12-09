@@ -210,6 +210,12 @@ class PackageBuilder:
             size_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(icon_file, size_dir / f"{icon_name}.png")
 
+            # Also install icon under WM_CLASS name so DEs that map icons by WM_CLASS
+            # (e.g., Wine windows launched outside desktop files) can find it.
+            if exe.wm_class and "/" not in exe.wm_class:
+                wm_icon_name = exe.wm_class
+                shutil.copy2(icon_file, size_dir / f"{wm_icon_name}.png")
+
 
 class FormatBuilder(ABC):
     """Base class for format-specific package builders."""
