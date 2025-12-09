@@ -180,37 +180,35 @@ class PackageBuilder:
                 shutil.copy2(manifest_src, install_dir / "manifest.json")
 
     def _install_icons(self, staging_root: Path) -> None:
-        """Install icons to XDG icon directories."""
+        """Install icons to XDG icon directories with names matching command names."""
         icons_src = self.intermediate_path / "icons" if self.intermediate_path else None
         if not icons_src or not icons_src.exists():
             return
-        
+
         icons_base = staging_root / "usr" / "share" / "icons" / "hicolor"
-        
-        for icon_file in icons_src.glob("*.png"):
-            # Try to determine size from filename (e.g., "main-256.png")
-            name = icon_file.stem
-            
-            # Check if filename contains size
-            for size in [256, 128, 64, 48, 32, 24, 16]:
-                if f"-{size}" in name:
-                    size_dir = icons_base / f"{size}x{size}" / "apps"
-                    size_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    # Use app name as icon name
-                    clean_name = name.replace(f"-{size}", "")
-                    if clean_name == "main":
-                        clean_name = self.spec.app.name
-                    
-                    shutil.copy2(icon_file, size_dir / f"{clean_name}.png")
-                    break
+
+        # Iterate over executables to map exe.id -> command name
+        for i, exe in enumerate(self.spec.executables):
+            if not exe.icon:
+                continue
+
+            # Find the icon file (stored as icons/{exe.id}.png in intermediate)
+            icon_file = self.intermediate_path / exe.icon
+            if not icon_file.exists():
+                continue
+
+            # Determine the command name (must match launcher.py and builder.py symlink logic)
+            if exe.command:
+                icon_name = exe.command
+            elif i == 0:
+                icon_name = self.spec.app.name
             else:
-                # No size in filename, assume 256
-                size_dir = icons_base / "256x256" / "apps"
-                size_dir.mkdir(parents=True, exist_ok=True)
-                
-                clean_name = name if name != "main" else self.spec.app.name
-                shutil.copy2(icon_file, size_dir / f"{clean_name}.png")
+                icon_name = f"{self.spec.app.name}-{exe.id}"
+
+            # Install icon with the command name
+            size_dir = icons_base / "256x256" / "apps"
+            size_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(icon_file, size_dir / f"{icon_name}.png")
 
 
 class FormatBuilder(ABC):
