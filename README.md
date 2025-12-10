@@ -1,6 +1,6 @@
 # Uncork
 
-## WORK IN PROGRESS ##
+## WORK IN PROGRESS (not prod ready) ##
 
 > Uncork your Wine apps
 
