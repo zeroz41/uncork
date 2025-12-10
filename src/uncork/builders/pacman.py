@@ -83,27 +83,50 @@ class PacmanBuilder(FormatBuilder):
 
     def _generate_install_script(self) -> str:
         """Generate .INSTALL scriptlet."""
-        return dedent('''\
-            post_install() {
+        use_overlay = self.spec.install.use_overlay
+
+        cleanup_block = ""
+        if use_overlay:
+            # Use the universal unmounting script from base class
+            cleanup_block = "\n" + self.generate_overlay_unmount_script()
+
+        script = dedent(f'''\
+            post_install() {{
                 # Update desktop database
                 if command -v update-desktop-database &>/dev/null; then
                     update-desktop-database -q /usr/share/applications
                 fi
-                
+
                 # Update icon cache
                 if command -v gtk-update-icon-cache &>/dev/null; then
                     gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor
                 fi
-            }
-            
-            post_upgrade() {
+            }}
+
+            post_upgrade() {{
                 post_install
-            }
-            
+            }}
+        ''')
+
+        if use_overlay:
+            script += dedent(f'''\
+
+            pre_remove() {{{cleanup_block}
+            }}
+
+            post_remove() {{
+                post_install
+            }}
+            ''')
+        else:
+            script += dedent('''\
+
             post_remove() {
                 post_install
             }
-        ''')
+            ''')
+
+        return script
 
     def _build_package(self) -> Path:
         """Build the .pkg.tar.zst package."""

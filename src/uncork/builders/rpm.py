@@ -132,54 +132,63 @@ class RpmBuilder(FormatBuilder):
 
     def _generate_spec_file(self, source_name: str) -> str:
         """Generate RPM spec file."""
-        
+
         requires = []
         if self.spec.wine.mode == WineMode.SYSTEM:
             requires.append("wine")
         if self.spec.install.use_overlay:
             requires.append("fuse-overlayfs")
-        
+
         requires_str = "\n".join(f"Requires: {r}" for r in requires) if requires else ""
-        
+
+        # Generate unmounting script for preun if using overlay
+        preun_script = ""
+        if self.spec.install.use_overlay:
+            # Use the universal unmounting script from base class
+            preun_script = self.generate_overlay_unmount_script()
+
         return dedent(f'''\
             Name:           {self.package_name}
             Version:        {self.package_version}
             Release:        1%{{?dist}}
             Summary:        {self.spec.app.display_name}
-            
+
             License:        {self.spec.app.license}
             URL:            {self.spec.app.homepage or ""}
             Source0:        {source_name}.tar.gz
-            
+
             BuildArch:      x86_64
             {requires_str}
-            
+
             %description
             {self.package_description}
-            
+
             This is a Windows application packaged to run via Wine.
-            
+
             %prep
             %setup -q
-            
+
             %install
             mkdir -p %{{buildroot}}
             cp -r * %{{buildroot}}/
-            
+
             %post
             /usr/bin/update-desktop-database /usr/share/applications &>/dev/null || :
             /usr/bin/gtk-update-icon-cache /usr/share/icons/hicolor &>/dev/null || :
-            
+
+            %preun
+            {preun_script}
+
             %postun
             /usr/bin/update-desktop-database /usr/share/applications &>/dev/null || :
             /usr/bin/gtk-update-icon-cache /usr/share/icons/hicolor &>/dev/null || :
-            
+
             %files
             /opt/{self.package_name}
             /usr/bin/{self.package_name}
             /usr/share/applications/{self.package_name}.desktop
             /usr/share/icons/hicolor/*/apps/{self.package_name}.png
-            
+
             %changelog
             * $(date "+%a %b %d %Y") {self.spec.app.maintainer or "Package Builder"} - {self.package_version}-1
             - Initial package
@@ -188,18 +197,26 @@ class RpmBuilder(FormatBuilder):
     def _create_post_script(self, action: str) -> str:
         """Create a temporary post-install/remove script and return path."""
         import tempfile
-        
-        script = dedent('''\
+
+        use_overlay = self.spec.install.use_overlay
+
+        cleanup_block = ""
+        if action == "remove" and use_overlay:
+            # Use the universal unmounting script from base class
+            cleanup_block = self.generate_overlay_unmount_script() + "\n"
+
+        script = dedent(f'''\
             #!/bin/bash
             update-desktop-database /usr/share/applications &>/dev/null || true
             gtk-update-icon-cache /usr/share/icons/hicolor &>/dev/null || true
+            {cleanup_block}
         ''')
-        
+
         fd, path = tempfile.mkstemp(suffix=f"-{action}.sh")
         os.write(fd, script.encode())
         os.close(fd)
         os.chmod(path, 0o755)
-        
+
         return path
 
     def _has_fpm(self) -> bool:

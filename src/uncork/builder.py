@@ -8,6 +8,7 @@ import shutil
 import stat
 from abc import ABC, abstractmethod
 from pathlib import Path
+from textwrap import dedent
 from typing import TYPE_CHECKING
 
 from uncork.launcher import generate_all_launchers
@@ -150,13 +151,22 @@ class PackageBuilder:
         # 5. Create /usr/bin symlinks for easy CLI access
         usr_bin = staging_root / "usr" / "bin"
         usr_bin.mkdir(parents=True, exist_ok=True)
-        
-        for exe in self.spec.executables:
-            # Symlink /usr/bin/appname -> /opt/appname/bin/main
-            link_name = self.spec.app.name if exe.id == "main" else f"{self.spec.app.name}-{exe.id}"
+
+        for i, exe in enumerate(self.spec.executables):
+            # Determine command name
+            if exe.command:
+                # Use explicit command name if provided
+                link_name = exe.command
+            elif i == 0:
+                # First executable gets the app name (no suffix)
+                link_name = self.spec.app.name
+            else:
+                # Additional executables get app-name-exe-id format
+                link_name = f"{self.spec.app.name}-{exe.id}"
+
             link_path = usr_bin / link_name
             target = f"{system_path}/bin/{exe.id}"
-            
+
             link_path.symlink_to(target)
         
         # 6. Install icons to standard locations
@@ -170,37 +180,41 @@ class PackageBuilder:
                 shutil.copy2(manifest_src, install_dir / "manifest.json")
 
     def _install_icons(self, staging_root: Path) -> None:
-        """Install icons to XDG icon directories."""
+        """Install icons to XDG icon directories with names matching command names."""
         icons_src = self.intermediate_path / "icons" if self.intermediate_path else None
         if not icons_src or not icons_src.exists():
             return
-        
+
         icons_base = staging_root / "usr" / "share" / "icons" / "hicolor"
-        
-        for icon_file in icons_src.glob("*.png"):
-            # Try to determine size from filename (e.g., "main-256.png")
-            name = icon_file.stem
-            
-            # Check if filename contains size
-            for size in [256, 128, 64, 48, 32, 24, 16]:
-                if f"-{size}" in name:
-                    size_dir = icons_base / f"{size}x{size}" / "apps"
-                    size_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    # Use app name as icon name
-                    clean_name = name.replace(f"-{size}", "")
-                    if clean_name == "main":
-                        clean_name = self.spec.app.name
-                    
-                    shutil.copy2(icon_file, size_dir / f"{clean_name}.png")
-                    break
+
+        # Iterate over executables to map exe.id -> command name
+        for i, exe in enumerate(self.spec.executables):
+            if not exe.icon:
+                continue
+
+            # Find the icon file (stored as icons/{exe.id}.png in intermediate)
+            icon_file = self.intermediate_path / exe.icon
+            if not icon_file.exists():
+                continue
+
+            # Determine the command name (must match launcher.py and builder.py symlink logic)
+            if exe.command:
+                icon_name = exe.command
+            elif i == 0:
+                icon_name = self.spec.app.name
             else:
-                # No size in filename, assume 256
-                size_dir = icons_base / "256x256" / "apps"
-                size_dir.mkdir(parents=True, exist_ok=True)
-                
-                clean_name = name if name != "main" else self.spec.app.name
-                shutil.copy2(icon_file, size_dir / f"{clean_name}.png")
+                icon_name = f"{self.spec.app.name}-{exe.id}"
+
+            # Install icon with the command name
+            size_dir = icons_base / "256x256" / "apps"
+            size_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(icon_file, size_dir / f"{icon_name}.png")
+
+            # Also install icon under WM_CLASS name so DEs that map icons by WM_CLASS
+            # (e.g., Wine windows launched outside desktop files) can find it.
+            if exe.wm_class and "/" not in exe.wm_class:
+                wm_icon_name = exe.wm_class
+                shutil.copy2(icon_file, size_dir / f"{wm_icon_name}.png")
 
 
 class FormatBuilder(ABC):
@@ -227,3 +241,53 @@ class FormatBuilder(ABC):
     @property
     def package_description(self) -> str:
         return self.spec.app.description
+
+    def generate_overlay_unmount_script(self) -> str:
+        """
+        Generate universal overlay filesystem unmounting script.
+
+        This script works reliably across all package formats (deb, pacman, rpm).
+        It uses an aggressive retry strategy to ensure overlays are unmounted during
+        package removal, even if Wine processes are running.
+
+        Returns:
+            Bash script code (no shebang) that unmounts all user overlays
+        """
+        app_name = self.spec.app.name
+
+        return dedent(f'''\
+            # Unmount and clean up overlay mounts for all users
+            for user_home in /home/*; do
+                [[ -d "$user_home" ]] || continue
+                username=$(basename "$user_home")
+                user_data="${{user_home}}/.local/share/{app_name}"
+                merged_dir="${{user_data}}/prefix"
+
+                # Check if mounted using mount command (more reliable than mountpoint)
+                if mount | grep -q "$merged_dir"; then
+                    # Try multiple times with increasing aggression
+                    for attempt in {{1..10}}; do
+                        # Kill all wine processes first
+                        pkill -9 -u "$username" wine 2>/dev/null || true
+                        pkill -9 -u "$username" wineserver 2>/dev/null || true
+
+                        # Kill anything using the mount
+                        fuser -km "$merged_dir" 2>/dev/null || true
+                        sleep 0.2
+
+                        # Try lazy unmount as user (FUSE mounts are user-owned)
+                        su "$username" -c "fusermount -uz '$merged_dir' 2>/dev/null" && break
+
+                        # If that failed, try as root with force
+                        umount -l "$merged_dir" 2>/dev/null && break
+
+                        sleep 0.5
+                    done
+                fi
+
+                # Remove user data directory
+                if [[ -d "$user_data" ]]; then
+                    rm -rf "$user_data" 2>/dev/null || true
+                fi
+            done
+        ''')

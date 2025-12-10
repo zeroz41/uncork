@@ -96,12 +96,15 @@ class PrefixCapture:
         name: str,
         path: str,
         *,
+        command: str | None = None,
         args: str = "",
         working_dir: str | None = None,
         icon_source: str | None = None,
         custom_icon_path: str | Path | None = None,
+        description: str | None = None,
         desktop_entry: bool = True,
         categories: list[str] | None = None,
+        wm_class: str | None = None,
     ) -> None:
         """
         Add an executable entry point.
@@ -110,12 +113,15 @@ class PrefixCapture:
             id: Unique identifier (used in filenames)
             name: Human-readable name for menus
             path: Path relative to prefix (e.g., "drive_c/Program Files/App/app.exe")
+            command: Custom command name (defaults to auto-generated from position)
             args: Default command-line arguments
             working_dir: Working directory relative to prefix
             icon_source: Path to extract icon from within prefix (defaults to exe path)
             custom_icon_path: Absolute path to custom icon file (PNG/ICO) to use instead of extracting
+            description: Description for .desktop file (falls back to app description if None)
             desktop_entry: Whether to create .desktop file
             categories: XDG categories for .desktop file
+            wm_class: Override StartupWMClass value (defaults to exe filename)
         """
         # Validate path exists
         full_path = self.prefix_path / path
@@ -132,11 +138,14 @@ class PrefixCapture:
             id=id,
             name=name,
             path=path,
+            command=command,
             args=args,
             working_dir=working_dir or str(Path(path).parent),
             icon=None,  # Set during normalization
+            description=description,
             create_desktop_entry=desktop_entry,
             categories=categories or ["Application"],
+            wm_class=wm_class,
         )
 
         # Store icon source for later extraction
@@ -253,12 +262,34 @@ class PrefixCapture:
         """
         import subprocess
         import sys
+        import shutil
 
         try:
             env = os.environ.copy()
             env['WINEPREFIX'] = str(self.prefix_path)
+            env['WINEDEBUG'] = '-all'
 
-            # Run wineboot -u with no output
+            # Kill any running wineserver for this prefix
+            try:
+                subprocess.run(
+                    ['wineserver', '-k'],
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+            except Exception:
+                pass
+
+            # Completely disable all display connections
+            # Remove all display-related environment variables
+            for var in ['DISPLAY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'WAYLAND_SOCKET']:
+                env.pop(var, None)
+
+            # Set display to invalid value as backup
+            env['DISPLAY'] = ''
+            env['WAYLAND_DISPLAY'] = ''
+
             result = subprocess.run(
                 ['wineboot', '-u'],
                 env=env,
@@ -267,7 +298,7 @@ class PrefixCapture:
                 timeout=60,
             )
 
-            # Wait a bit for wineboot to finish background tasks
+            # Wait for wineboot to finish background tasks
             import time
             time.sleep(2)
 

@@ -40,7 +40,14 @@ class DebBuilder(FormatBuilder):
         postinst_path = debian_dir / "postinst"
         postinst_path.write_text(postinst)
         postinst_path.chmod(0o755)
-        
+
+        # Write prerm script (pre-removal)
+        if self.spec.install.use_overlay:
+            prerm = self._generate_prerm()
+            prerm_path = debian_dir / "prerm"
+            prerm_path.write_text(prerm)
+            prerm_path.chmod(0o755)
+
         # Write postrm script
         postrm = self._generate_postrm()
         postrm_path = debian_dir / "postrm"
@@ -110,36 +117,56 @@ class DebBuilder(FormatBuilder):
         return dedent('''\
             #!/bin/bash
             set -e
-            
+
             # Update desktop database
             if command -v update-desktop-database &>/dev/null; then
                 update-desktop-database -q /usr/share/applications || true
             fi
-            
+
             # Update icon cache
             if command -v gtk-update-icon-cache &>/dev/null; then
                 gtk-update-icon-cache -q /usr/share/icons/hicolor || true
             fi
-            
+
+            exit 0
+        ''')
+
+    def _generate_prerm(self) -> str:
+        """Generate pre-removal script to unmount overlays."""
+        # Use the universal unmounting script from base class
+        unmount_script = self.generate_overlay_unmount_script()
+
+        return dedent(f'''\
+            #!/bin/bash
+            set -e
+
+            {unmount_script}
             exit 0
         ''')
 
     def _generate_postrm(self) -> str:
         """Generate post-removal script."""
-        return dedent('''\
+        use_overlay = self.spec.install.use_overlay
+
+        cleanup_block = ""
+        if use_overlay:
+            # Use the universal unmounting script from base class
+            cleanup_block = self.generate_overlay_unmount_script() + "\n"
+
+        return dedent(f'''\
             #!/bin/bash
             set -e
-            
+
             # Update desktop database
             if command -v update-desktop-database &>/dev/null; then
                 update-desktop-database -q /usr/share/applications || true
             fi
-            
+
             # Update icon cache
             if command -v gtk-update-icon-cache &>/dev/null; then
                 gtk-update-icon-cache -q /usr/share/icons/hicolor || true
             fi
-            
+            {cleanup_block}
             exit 0
         ''')
 
